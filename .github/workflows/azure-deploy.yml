@@ -1,0 +1,55 @@
+name: Azure Deployment
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Caching NPM
+        uses: actions/cache@v2.1.6
+        with:
+          path: |
+            ~/.npm
+            /usr/local/lib/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            key: ${{ runner.os }}-npm-
+            
+      - name: Install tools
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: npm i -g @tuckn/insert-gtag tslib
+            
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        
+      - name: Insert gtag
+        run: insert-gtag anlaytics ./ ${{ secrets.GTAG_UA }}
+        
+      - name: Prepare production
+        run: |
+          bash ./build/deploy-prep-prod.sh
+          bash ./build/deploy-delete-files.sh
+
+      - name: Azure login
+      - uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+      - name: Upload to blob storage
+      - uses: azure/CLI@v1
+        with:
+          azcliversion: 2.0.72
+          inlineScript: az storage blob upload-batch --account-name ${{ secrets.AZURE_STORAGE_ACCOUNT }} -d '$web' -s .
+
+      - name: Azure logout
+        run: az logout
+        if: always()
